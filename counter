@@ -1,0 +1,118 @@
+from rclpy.node import node
+from std.msgs.msg import string
+import json
+import time
+import cv2
+
+max_people = 10
+announce_interval = 5
+
+def pub(jmcd):
+    msg = String()
+    msg.data = json.dump(jmcd)
+    armheadpub.publish(msg)
+
+def speak(text):
+    msg = String()
+    msg.data = text
+    ttspub.publish(msg)
+
+def look_at_person(x, frame_width):
+    center = frame_width / 2
+    offset = (x - center) / center
+
+    hx = int(-offset * 30)
+
+    hx = max(-35, min(35, hx))
+
+    pub({"cmd": f"ms:400,hx:{hx}"})
+
+def announce_count(count):
+    if count == 0:
+        speak("deep I see no people here")
+    elif count == 1:
+        speak("deep I see one person")
+    elif count < max_people:
+        speak (f"deep I see {count} people")
+    else:
+        speak("deep There are many people here")
+
+def find_newest(boxes, frame_width):
+    center = frame_width / 2
+    
+    farthest = None
+    farthest_dist = 0 
+
+    for (x, y, w, h) in boxes:
+        cx = x + w / 2
+        dist = abs(cx- center)
+
+        if dist > farthest_dist:
+            farthest_dist = dist
+            farthest = cx
+
+    return_farthest
+
+rclpy.init()
+
+node = rclpy.create_node("person_counter")
+
+armheadpub = node.create_publisher(String, "/evo/droid1/armheadcontrol", 10)
+ttspub = node.create_publisher(String, "/speech_text", 10)
+
+time.sleep(1)
+
+pub({"cmd": "home"})
+
+cap = cv2.VideoCapture(0)
+
+hog = cv2.HOGDescriptor()
+hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+
+last_announce = time.time()
+previous_count = 0
+
+while True:
+    
+    ret, frame = cap.read()
+
+    if not ret:
+        continue
+    
+    frame_height, frame_width = frame.shape[:2]
+
+    boxes, weights = hog.detectMultiScale(frame, winStride=(8,8))
+
+    count = len(boxes)
+    count = min(count, MAX_PEOPLE)
+
+    now = time.time()
+
+    if now - last_announce > announce_interval:
+        announce_count(count)
+        last_announce = now
+
+    if count < 5 and count > 0:
+
+        if count > previous_count:
+
+            newest = find_newest(boxes, frame_width)
+
+            if newest is not None:
+                look_at_person(newest, frame_width)
+
+            previous_count = count
+
+            for (x, y, w, h) in boxes:
+                cv2.rectangle(frame, (x,y), (x+w,y+h), (0,255,0), 2)
+
+            cv2.imshow("Robot Camera", frame)
+
+            if cv2.waitKey(1) == 27:
+                break
+
+cap.release()
+cv2.destroyAllWindows()
+node.destroy_node()
+rclpy.try_shutdown()
+
